@@ -1,0 +1,1 @@
+These data kept private for confidentiality. May be able to email Rick and obtain them.
