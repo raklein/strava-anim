@@ -55,11 +55,17 @@ act_data <- compile_activities(my_acts)
 # Pull detail of a single run, in this case the most recent.
 strms_data <- get_activity_streams(my_acts, stoken, acts = 1)
 
-# Calculate coordinates (latitude/longitude) to center map on
-lat_center <- (min(strms_data$lat)+max(strms_data$lat))/2
-lng_center <- (min(strms_data$lng)+max(strms_data$lng))/2
+# Note a couple runs are from places other than Grenoble: id == 2411726291 and id == 275734838
 
-# Download map based on center of lat/long
+# Calculate coordinates (latitude/longitude) to center map on
+# lat_center <- (min(strms_data$lat)+max(strms_data$lat))/2
+# lng_center <- (min(strms_data$lng)+max(strms_data$lng))/2
+# maybe this instead to exclude the lyon runs?
+lat_center <- median(strms_data$lat)
+lng_center <- median(strms_data$lng)
+
+# Download map based on center of lat/long # Not currently working, need to troubleshoot.
+# Might be my gmaps API key because my free trial expired
 map <- get_map(location = c(lon = lng_center, lat = lat_center), 
                zoom = 14, # may have to adjust this
                source = 'google', 
