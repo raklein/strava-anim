@@ -1,5 +1,5 @@
 # strava-anim
-R script to building animated run plots with rstrava, ggmap, and gganimate.
+R script to import your own Strava data and build animated plots with rstrava, ggmap, and gganimate.
 
 ![](allruns_anim3-optimized.gif)
 
