@@ -22,8 +22,9 @@ library("ggmap")
 library("wesanderson") # color palette
 library("Cairo") # better looking renders
 
-# Private keys you'll have to input yourself (all free)
-# Need to access the Strava API: https://developers.strava.com/
+# PRIVATE keys you'll have to input yourself -- DON'T SHARE THEM once you do!
+# Should all be free, except google maps may cost a few pennies
+# Strava API: https://developers.strava.com/
 # and Google Maps API: https://developers.google.com/places/web-service/get-api-key
 app_name <- 'XXXXXXXXXXX' # name of app on Strava
 app_client_id  <- 'XXXXX' # an integer, assigned by Strava
@@ -32,6 +33,7 @@ app_secret <- 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX' # an alphanumeric s
 goog_key <- "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" # from your own Google API account
 
 # I'm going to call these from a file I store locally, for privacy
+# This line shouldn't run for anyone else, but you can also store your keys here
 source("./data_keys/keys.R")
 
 # First create the strava authentication token
@@ -55,20 +57,25 @@ act_data <- compile_activities(my_acts)
 # Pull detail of a single run, in this case the most recent.
 strms_data <- get_activity_streams(my_acts, stoken, acts = 1)
 
-# Note a couple runs are from places other than Grenoble: id == 2411726291 and id == 275734838
+# Note to self: you have a couple runs from Lyon (id == 2411726291 and id == 275734838)
+# Keep this in mind or it will mess up your latitude/longitude for maps.
 
 # Calculate coordinates (latitude/longitude) to center map on
-# lat_center <- (min(strms_data$lat)+max(strms_data$lat))/2
-# lng_center <- (min(strms_data$lng)+max(strms_data$lng))/2
-# maybe this instead to exclude the lyon runs?
 lat_center <- median(strms_data$lat)
 lng_center <- median(strms_data$lng)
 
-# Download map based on center of lat/long # Not currently working, need to troubleshoot.
-# Might be my gmaps API key because my free trial expired
-map <- get_map(location = c(lon = lng_center, lat = lat_center), 
+# Download map based on center of lat/long
+# NOTE: Due to Google API changes you may need to enable billing
+# (see https://github.com/dkahle/ggmap)
+# However it should be free, or cheap
+# (see https://developers.google.com/maps/documentation/maps-static/usage-and-billing)
+# At writing, a call to the Static Maps API costs 0.002 USD, and this script
+# makes ~2 calls from start to finish. So, you'd have to run it 250 times to incur a $1 cost.
+# (HOWEVER -- this also means you should keep your Google Maps API key safe)
+
+map <- get_map(location = c(lon = lng_center, lat = lat_center),
                zoom = 14, # may have to adjust this
-               source = 'google', 
+               source = 'google',
                maptype = 'terrain')
 
 # Plot that map
@@ -95,8 +102,8 @@ anim_save("singlerun_anim.gif")
 strms_data_all <- get_activity_streams(my_acts, stoken)
 
 # Calculate coordinates (latitude/longitude) to center map on using all runs
-lat_center <- (min(strms_data_all$lat)+max(strms_data_all$lat))/2
-lng_center <- (min(strms_data_all$lng)+max(strms_data_all$lng))/2
+lat_center <- median(strms_data_all$lat)
+lng_center <- median(strms_data_all$lng)
 
 # Download map using new center
 map <- get_map(location = c(lon = lng_center, lat = lat_center), 
@@ -158,23 +165,25 @@ gganimate::animate(allruns_anim2, type="cairo", width = 640, height = 640)
 # Save
 anim_save("allruns_anim2.gif")
 
-# If you want, you can crop the figure by adding something like this: 
-allruns_anim2_cropped <- ggmap(map) +
-  geom_path(data=alldata,
-            aes(x = lng, y = lat, group = id, color = as.factor(date(start_date))),
-            size = 1.25,
-            alpha = 0.5) +
-  theme(legend.position = "none") +
-  scale_x_continuous(limits = c(min(alldata$lng), max(alldata$lng)), expand = c(0, 0)) +
-  scale_y_continuous(limits = c(min(alldata$lat), max(alldata$lat)), expand = c(0, 0)) +
-  # gganimate below
-  transition_reveal(time_cumulative)
-
-# Render
-gganimate::animate(allruns_anim2_cropped, type="cairo", width = 640, height = 640)
-
-# Save
-anim_save("allruns_anim2_cropped.gif")
+# # If you want, you can crop the figure by adding something like this:
+### COMMENTED OUT: This code gets screwed up by the runs from Lyon --
+# specifically the min() and max() calls. But, you could work around that.
+# allruns_anim2_cropped <- ggmap(map) +
+#   geom_path(data=alldata,
+#             aes(x = lng, y = lat, group = id, color = as.factor(date(start_date))),
+#             size = 1.25,
+#             alpha = 0.5) +
+#   theme(legend.position = "none") +
+#   scale_x_continuous(limits = c(min(alldata$lng), max(alldata$lng)), expand = c(0, 0)) +
+#   scale_y_continuous(limits = c(min(alldata$lat), max(alldata$lat)), expand = c(0, 0)) +
+#   # gganimate below
+#   transition_reveal(time_cumulative)
+# 
+# # Render
+# gganimate::animate(allruns_anim2_cropped, type="cairo", width = 640, height = 640)
+# 
+# # Save
+# anim_save("allruns_anim2_cropped.gif")
 
 # Problem: Can't see the return trips easily. 
 # Plot with trailing shadow instead?
@@ -187,7 +196,13 @@ nruns <- length(unique(date(alldata$start_date)))
 # Specify color pallette from the wesanderson package
 pal <- wes_palette("Zissou1", n = nruns, type = "continuous")
 
-# Plot
+################################
+## Final, beautiful runs plot
+################################
+# So, now we're working with the color palette from The Life Aquatic with Steve Zissou (2004)
+# and animating all our runs at once as little 'slug-like' objects. The bluer the 
+# run the older it is, with red runs being most recent.
+
 allruns_anim3 <- ggmap(map) +
   geom_point(data=alldata,
             aes(x = lng, y = lat, group = as.factor(date(start_date)), color = as.factor(date(start_date))),
@@ -206,4 +221,5 @@ gganimate::animate(allruns_anim3, detail = 5, type = "cairo", fps = 20, nframes 
 anim_save("allruns_anim3.gif")
 
 # Finally, Because most of the image is static, you could massively reduce size
-# e.g. with "Optimize Transparency" here: https://ezgif.com/optimize
+# with little loss in quality by uploading it e.g. here: https://ezgif.com/optimize 
+# and selecting 'Optimization method:  Optimize Transparency'
