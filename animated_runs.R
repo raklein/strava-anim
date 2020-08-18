@@ -38,7 +38,7 @@ source("./data_keys/keys.R")
 
 # First create the strava authentication token
 # A browser should pop-up asking you to login to Strava and approve
-stoken <- httr::config(token = strava_oauth(app_name, app_client_id, app_secret))
+stoken <- httr::config(token = strava_oauth(app_name, app_client_id, app_secret, app_scope="activity:read_all"))
 
 # Get basic athlete info
 myinfo <- get_athlete(stoken, id = myid)
