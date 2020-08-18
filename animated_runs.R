@@ -13,6 +13,11 @@
 #devtools::install_github("dkahle/ggmap")
 #devtools::install_github('thomasp85/gganimate')
 #install.packages("gifski") # may be necessary to use gganimate properly
+#devtools::install_github("kassambara/factoextra")
+
+library("factoextra") # optional, helps detect "clusters" of runs if you run in multiple cities
+library("dbscan") # optional, helps detect "clusters" of runs if you run in multiple cities
+library("revgeo") # optional, does a reverse lookup to identify city and country from lat/long
 
 library("rStrava")
 library("tidyverse")
@@ -58,7 +63,7 @@ act_data <- compile_activities(my_acts)
 strms_data <- get_activity_streams(my_acts, stoken, acts = 1)
 
 # Note to self: you have a couple runs from Lyon (id == 2411726291 and id == 275734838)
-# Keep this in mind or it will mess up your latitude/longitude for maps.
+# Keep this in mind or it may mess up your latitude/longitude for maps.
 
 # Calculate coordinates (latitude/longitude) to center map on
 lat_center <- median(strms_data$lat)
@@ -100,6 +105,49 @@ anim_save("singlerun_anim.gif")
 ### Now let's plot and animate all runs at the same time
 # Fetch data
 strms_data_all <- get_activity_streams(my_acts, stoken)
+
+### Optional sidebar: Dealing with multiple locations
+# If you use Strava in multiple cities you may have difficulty plotting them
+# on one map. Personally, I've used Strava in (at least) Tilburg, Lyon, and Grenoble.
+# This is massive overkill, but we can use machine learning clustering methods
+# to identify these "clusters" of runs and label them in the data, so we can filter
+# and create separate maps.
+
+# We'll use just latitude and longitude, but it needs to be in a matrix
+lat_lng_matrix <- strms_data_all %>% 
+  select(lat, lng) %>% 
+  as.matrix
+
+# We'll use dbscan which is a density based clustering method. You may
+# have to adjust the 'eps' parameter to get a sensible result.
+# Warning: this could take > 5 minutes on large datasets or slow hardware
+clusters <- dbscan::dbscan(lat_lng_matrix, eps = 1)
+
+# Print clusters to see if they're reasonable
+clusters
+
+# Visualize, eyeball if this makes sense
+fviz_cluster(clusters, lat_lng_matrix, geom = "point")
+
+# Once you're happy, add this variable back to the main dataset
+strms_data_all$cluster <- clusters$cluster
+
+# We can also reverse lookup where these clusters are
+# Find median lat and lng per cluster
+lat_lng <- strms_data_all %>% 
+  group_by(cluster) %>% 
+  summarize(lng = median(lng), lat = median(lat)) %>% 
+  as.data.frame()
+
+# I have 3 clusters
+revgeo(longitude=lat_lng[1,2], latitude=lat_lng[1,3], provider = "photon", output="frame")
+revgeo(longitude=lat_lng[2,2], latitude=lat_lng[2,3], provider = "photon", output="frame")
+revgeo(longitude=lat_lng[3,2], latitude=lat_lng[3,3], provider = "photon", output="frame")
+
+# Select whichever you want to focus on. If you only run in one city, or have a few random runs
+# then this is super unnecessary and you can skip it (the median() calls will handle that)
+strms_data_all <- strms_data_all %>% 
+  filter(cluster == 3)
 
 # Calculate coordinates (latitude/longitude) to center map on using all runs
 lat_center <- median(strms_data_all$lat)
