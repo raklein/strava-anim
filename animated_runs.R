@@ -62,9 +62,6 @@ act_data <- compile_activities(my_acts)
 # Pull detail of a single run, in this case the most recent.
 strms_data <- get_activity_streams(my_acts, stoken, acts = 1)
 
-# Note to self: you have a couple runs from Lyon (id == 2411726291 and id == 275734838)
-# Keep this in mind or it may mess up your latitude/longitude for maps.
-
 # Calculate coordinates (latitude/longitude) to center map on
 lat_center <- median(strms_data$lat)
 lng_center <- median(strms_data$lng)
@@ -78,8 +75,11 @@ lng_center <- median(strms_data$lng)
 # makes ~2 calls from start to finish. So, you'd have to run it 250 times to incur a $1 cost.
 # (HOWEVER -- this also means you should keep your Google Maps API key safe)
 
+# let's specify a zoom level, 13 - 14 tends to be city scale
+selected_zoom <- 13
+
 map <- get_map(location = c(lon = lng_center, lat = lat_center),
-               zoom = 14, # may have to adjust this
+               zoom = selected_zoom, # may have to adjust this
                source = 'google',
                maptype = 'terrain')
 
@@ -99,8 +99,8 @@ singlerun_anim <- singlerun_plot + transition_reveal(time)
 gganimate::animate(singlerun_anim, type="cairo", width = 640, height = 640)
 
 # Save the animation if you want
-# This works by saving the last rendered animation in "plots"
-anim_save("singlerun_anim.gif")
+# # This works by saving the last rendered animation in "plots"
+# anim_save("singlerun_anim.gif")
 
 ### Now let's plot and animate all runs at the same time
 # Fetch data
@@ -109,59 +109,85 @@ strms_data_all <- get_activity_streams(my_acts, stoken)
 ### Optional sidebar: Dealing with multiple locations
 # If you use Strava in multiple cities you may have difficulty plotting them
 # on one map. Personally, I've used Strava in (at least) Tilburg, Lyon, and Grenoble.
-# This is massive overkill, but we can use machine learning clustering methods
-# to identify these "clusters" of runs and label them in the data, so we can filter
-# and create separate maps.
 
-# We'll use just latitude and longitude, but it needs to be in a matrix
-lat_lng_matrix <- strms_data_all %>% 
-  select(lat, lng) %>% 
-  as.matrix
+# ### Option 1: Clustering with machine learning
+# # This is massive overkill, but we can use clustering methods
+# # to identify these "clusters" of runs and label them in the data, so we can filter
+# # and create separate maps.
+# 
+# # We'll use just latitude and longitude, but it needs to be in a matrix
+# lat_lng_matrix <- strms_data_all %>% 
+#   select(lat, lng) %>% 
+#   as.matrix
+# 
+# # We'll use dbscan which is a density based clustering method. You may
+# # have to adjust the 'eps' parameter to get a sensible result.
+# # Warning: this could take > 5 minutes on large datasets or slow hardware
+# clusters <- dbscan::dbscan(lat_lng_matrix, eps = 1)
+# 
+# # Print clusters to see if they're reasonable
+# clusters
+# 
+# # Visualize, eyeball if this makes sense
+# fviz_cluster(clusters, lat_lng_matrix, geom = "point")
+# 
+# # Once you're happy, add this variable back to the main dataset
+# strms_data_all$cluster <- clusters$cluster
+# 
+# # We can also reverse lookup where these clusters are
+# # Find median lat and lng per cluster
+# lat_lng <- strms_data_all %>% 
+#   group_by(cluster) %>% 
+#   summarize(lng = median(lng), lat = median(lat)) %>% 
+#   as.data.frame()
+# 
+# # I have 3 clusters
+# revgeo(longitude=lat_lng[1,2], latitude=lat_lng[1,3], provider = "photon", output="frame")
+# revgeo(longitude=lat_lng[2,2], latitude=lat_lng[2,3], provider = "photon", output="frame")
+# revgeo(longitude=lat_lng[3,2], latitude=lat_lng[3,3], provider = "photon", output="frame")
 
-# We'll use dbscan which is a density based clustering method. You may
-# have to adjust the 'eps' parameter to get a sensible result.
-# Warning: this could take > 5 minutes on large datasets or slow hardware
-clusters <- dbscan::dbscan(lat_lng_matrix, eps = 1)
+# Option 2: Specify manual boundaries
+# A simpler, faster method is to just cluster together values that are 
+# approximately equal, here with dplyr::near()
+strms_data_all$cluster <- NA
+i <- 1
 
-# Print clusters to see if they're reasonable
-clusters
+# set tolerance for what counts as "near" another value, here in terms of lat and long
+# 1 degree equals about 69 miles (111 kilometers)
+boundary <- .4 
 
-# Visualize, eyeball if this makes sense
-fviz_cluster(clusters, lat_lng_matrix, geom = "point")
 
-# Once you're happy, add this variable back to the main dataset
-strms_data_all$cluster <- clusters$cluster
-
-# We can also reverse lookup where these clusters are
-# Find median lat and lng per cluster
-lat_lng <- strms_data_all %>% 
-  group_by(cluster) %>% 
-  summarize(lng = median(lng), lat = median(lat)) %>% 
-  as.data.frame()
-
-# I have 3 clusters
-revgeo(longitude=lat_lng[1,2], latitude=lat_lng[1,3], provider = "photon", output="frame")
-revgeo(longitude=lat_lng[2,2], latitude=lat_lng[2,3], provider = "photon", output="frame")
-revgeo(longitude=lat_lng[3,2], latitude=lat_lng[3,3], provider = "photon", output="frame")
+while(any(is.na(strms_data_all$cluster))){ # loop while any values don't have a cluster
+  # find the row number of the first NA value in cluster
+  index <- which(is.na(strms_data_all$cluster))[1]
+  
+  # create a vector with all the lat/long combinations near the lat/long of the first NA row
+  near_vec <- near(strms_data_all$lat[index], strms_data_all$lat, boundary) & near(strms_data_all$lng[index], strms_data_all$lng, boundary)
+  
+  # give those values a new cluster
+  strms_data_all$cluster[near_vec] <- i
+  
+  # increment the cluster counter
+  i <- i + 1
+}
 
 # Select whichever you want to focus on. If you only run in one city, or have a few random runs
-# then this is super unnecessary and you can skip it (the median() calls will handle that)
-strms_data_all <- strms_data_all %>% 
-  filter(cluster == 3)
+# then just leave this alone
+selected_cluster <- 1
 
 # Calculate coordinates (latitude/longitude) to center map on using all runs
-lat_center <- median(strms_data_all$lat)
-lng_center <- median(strms_data_all$lng)
+lat_center <- median(strms_data_all[strms_data_all$cluster == selected_cluster, ]$lat)
+lng_center <- median(strms_data_all[strms_data_all$cluster == selected_cluster, ]$lng)
 
 # Download map using new center
 map <- get_map(location = c(lon = lng_center, lat = lat_center), 
-               zoom = 14, # may have to adjust this
+               zoom = selected_zoom, # may have to adjust this
                source = 'google', 
                maptype = 'terrain')
 
 # Plot
 allruns_plot <- ggmap(map) +
-  geom_path(data=strms_data_all, aes(x = lng, y = lat, color = as.factor(id))) +
+  geom_path(data=strms_data_all[strms_data_all$cluster == selected_cluster, ], aes(x = lng, y = lat, color = as.factor(id))) +
   theme(legend.position = "none") 
 
 allruns_plot
@@ -172,8 +198,8 @@ allruns_anim <- allruns_plot + transition_reveal(time)
 # Render
 gganimate::animate(allruns_anim, type="cairo", width = 640, height = 640)
 
-# Save
-anim_save("allruns_anim.gif")
+# # Save
+# anim_save("allruns_anim.gif")
 
 # Problem: Sometimes I stop my Strava run and start a new one to time myself on certain legs
 # (e.g., record my run to the bastille separately from my run back from the bastille)
@@ -199,7 +225,7 @@ tmp <- select(tmp, id, time, timestamp, start_date, time_cumulative)
 
 # Reanimate with new time variable and some aesthetic improvements
 allruns_anim2 <- ggmap(map) +
-  geom_path(data=alldata,
+  geom_path(data=alldata[alldata$cluster == selected_cluster, ],
             aes(x = lng, y = lat, group = id, color = as.factor(date(start_date))),
             size = 1.25,
             alpha = 0.5) +
@@ -210,8 +236,8 @@ allruns_anim2 <- ggmap(map) +
 # Render
 gganimate::animate(allruns_anim2, type="cairo", width = 640, height = 640)
 
-# Save
-anim_save("allruns_anim2.gif")
+# # Save
+# anim_save("allruns_anim2.gif")
 
 # # If you want, you can crop the figure by adding something like this:
 ### COMMENTED OUT: This code gets screwed up by the runs from Lyon --
@@ -239,7 +265,7 @@ anim_save("allruns_anim2.gif")
 # New color palette too, let's borrow from Wes Anderson
 # Need to specify the number of colors needed, so this just counts the unique 
 # start dates.
-nruns <- length(unique(date(alldata$start_date)))
+nruns <- length(unique(date(alldata[alldata$cluster == selected_cluster, ]$start_date)))
 
 # Specify color pallette from the wesanderson package
 pal <- wes_palette("Zissou1", n = nruns, type = "continuous")
@@ -252,7 +278,7 @@ pal <- wes_palette("Zissou1", n = nruns, type = "continuous")
 # run the older it is, with red runs being most recent.
 
 allruns_anim3 <- ggmap(map) +
-  geom_point(data=alldata,
+  geom_point(data=alldata[alldata$cluster == selected_cluster, ],
             aes(x = lng, y = lat, group = as.factor(date(start_date)), color = as.factor(date(start_date))),
             size = 5,
             alpha = 1.0) +
@@ -265,8 +291,8 @@ allruns_anim3 <- ggmap(map) +
 # Add some settings to the render to make it higher quality
 gganimate::animate(allruns_anim3, detail = 5, type = "cairo", fps = 20, nframes = 400, width = 640, height = 640) #highqual
 
-# Save
-anim_save("allruns_anim3.gif")
+# # Save
+# anim_save("allruns_anim3.gif")
 
 # Finally, Because most of the image is static, you could massively reduce size
 # with little loss in quality by uploading it e.g. here: https://ezgif.com/optimize 
